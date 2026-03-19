@@ -36,11 +36,13 @@ class AuthService:
                 conta_salva.click()
             else:
                 print("Log (AuthService): Conta não listada. Preenchendo campo manualmente...")
-                campo_id = self.page.locator('#identifierInput')
-                campo_id.wait_for(state='visible')
+                # Busca pelo ID novo (#username) ou pelo antigo (#identifierInput)
+                campo_id = self.page.locator('#username, #identifierInput').first
+                campo_id.wait_for(state='visible', timeout=10000)
                 campo_id.fill(usuario)
-                # Clica no botão 'Next' da primeira tela
-                self.page.locator('a#signOnButton[title="Next"]').click()
+                # Usa o Enter nativo da página para ir para a próxima tela
+                campo_id.press("Enter")
+                self.page.wait_for_timeout(1000)
 
             # --- ETAPA 2: Senha ---
             print("Log (AuthService): Aguardando campo de senha...")
@@ -50,11 +52,11 @@ class AuthService:
             campo_senha.fill(senha)
 
             print("Log (AuthService): Submetendo credenciais...")
-            self.page.locator('a#signOnButton[title="Entrar"]').click()
+            # O Enter aciona o onkeypress="return postOnReturn(event)" nativo do HTML da TIM
+            campo_senha.press("Enter")
 
             # Validação: Espera o botão principal do Radar aparecer para confirmar sucesso
-            self.page.locator('a.titulomodulo', has_text='Radar Clássico').first.wait_for(state='visible',
-                                                                                          timeout=30000)
+            self.page.locator('a.titulomodulo', has_text='Radar Clássico').first.wait_for(state='visible', timeout=30000)
             print("Log (AuthService): Login concluído com sucesso!")
         else:
             print("Log (AuthService): Sessão ativa detectada. Login pulado.")
