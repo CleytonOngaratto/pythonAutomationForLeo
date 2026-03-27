@@ -1,49 +1,53 @@
 class DistribuidorRoundRobin:
     """
-    Responsabilidade: Gerenciar a fila circular de analistas e suas cotas.
-    SOLID: SRP - Lógica de distribuição isolada.
+    Responsabilidade: Gerenciar a fila circular e aplicar regras de Skill-Based Routing.
     """
 
-    def __init__(self, cotas):
-        # Transforma o dicionário em uma lista de objetos para fácil iteração
-        self.analistas = [{"login": k, "cota": v} for k, v in cotas.items() if v > 0]
-        self.ponteiro = 0
+    def __init__(self, cotas_dict):
+        # Recebe o novo dicionário aninhado do FileHandler
+        self.cotas = cotas_dict
+        self.analistas = list(self.cotas.keys())
+        self.indice_atual = 0
 
-    def obter_proximo_usuario(self):
-        """
-        Retorna o próximo analista da fila que ainda tenha cota.
-        O ponteiro avança a cada chamada para garantir o rodízio.
-        """
+    def obter_proximo_usuario(self, pedido_is_meta: bool):
+        """Busca o próximo analista na roda que seja ELEGÍVEL para o tipo de pedido."""
         if not self.analistas:
             return None
 
-        # Tenta encontrar alguém com cota, dando no máximo uma volta completa na lista
-        for _ in range(len(self.analistas)):
-            analista = self.analistas[self.ponteiro]
+        tentativas = 0
+        total_analistas = len(self.analistas)
 
-            # Avança o ponteiro para a PRÓXIMA chamada (mesmo se esta falhar depois)
-            self.ponteiro = (self.ponteiro + 1) % len(self.analistas)
+        while tentativas < total_analistas:
+            analista = self.analistas[self.indice_atual]
+            self.indice_atual = (self.indice_atual + 1) % len(self.analistas)
 
-            if analista["cota"] > 0:
-                return analista["login"]
+            filtro_analista = self.cotas[analista]['filtro']
+            cota_restante = self.cotas[analista]['cota']
+
+            # Regra de negócio: Analista aceita esse pedido?
+            elegivel = False
+            if filtro_analista == 'tudo':
+                elegivel = True
+            elif filtro_analista == 'meta' and pedido_is_meta:
+                elegivel = True
+
+            if cota_restante > 0 and elegivel:
+                return analista
+
+            tentativas += 1
 
         return None
 
-    def consumir_cota(self, login):
-        """
-        Decrementa a cota apenas após a confirmação de sucesso no sistema.
-        """
-        for a in self.analistas:
-            if a["login"] == login:
-                a["cota"] -= 1
-                if a["cota"] <= 0:
-                    print(f"Log (Distribuidor): Cota de {login} esgotada.")
-                break
+    def consumir_cota(self, usuario):
+        if usuario in self.cotas and self.cotas[usuario]['cota'] > 0:
+            self.cotas[usuario]['cota'] -= 1
+            if self.cotas[usuario]['cota'] <= 0:
+                print(f"Log (Distribuidor): Cota de {usuario} esgotada.")
+                self.desativar_usuario(usuario)
 
-    def desativar_usuario(self, login):
-        """Zera a cota de um usuário que apresentou erro crítico de acesso."""
-        for a in self.analistas:
-            if a["login"] == login:
-                a["cota"] = 0
-                print(f"Log (Distribuidor): !!! USUÁRIO {login} REMOVIDO DA FILA (Acesso Inválido) !!!")
-                break
+    def desativar_usuario(self, usuario):
+        if usuario in self.analistas:
+            print(f"Log (Distribuidor): !!! USUÁRIO {usuario} REMOVIDO DA FILA !!!")
+            self.analistas.remove(usuario)
+            if self.indice_atual >= len(self.analistas) and len(self.analistas) > 0:
+                self.indice_atual = 0

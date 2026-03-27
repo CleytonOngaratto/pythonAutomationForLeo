@@ -83,7 +83,7 @@ class RadarPortal:
 
         def handle_dialog(dialog):
             msg = dialog.message.lower()
-            print(f"Log (RadarPortal): Alerta detectado: {dialog.message}")
+            # A linha que imprimia o "Log (RadarPortal): Alerta detectado..." foi removida daqui!
 
             if "inválido" in msg or "bloqueado" in msg or "inexistente" in msg:
                 self.erro_login = True

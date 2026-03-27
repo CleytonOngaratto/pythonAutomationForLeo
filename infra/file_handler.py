@@ -10,61 +10,80 @@ class FileHandler:
     """
 
     def ler_planilha_cotas(self, caminho: str):
-        """Lê a planilha de analistas e transforma em um dicionário de trabalho."""
+        """Lê a planilha, aplica validações e retorna os analistas e seus filtros."""
         try:
-            # Planilha de cotas costuma ser .xlsx real (criada por nós)
             df = pd.read_excel(caminho, engine='openpyxl')
+            df.columns = df.columns.str.lower().str.strip()
 
-            # Cria o dicionário { 'T3763660': 10, 'T1234': 5 }
-            cotas_dict = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
+            # 1. TRATAMENTO DE ERRO: Colunas ausentes
+            if 'usuario' not in df.columns or 'cota' not in df.columns or 'filtro' not in df.columns:
+                print(
+                    "Log (FileHandler): [ERRO FATAL] Erro na planilha de alocação! As colunas devem se chamar exatamente: 'Usuario', 'Cota' e 'Filtro'.")
+                return None
+
+            # 2. TRATAMENTO DE ERRO: Células vazias
+            if df['filtro'].isnull().any():
+                print(
+                    "Log (FileHandler): [ERRO FATAL] Erro na planilha de alocação! Existem analistas com a coluna 'Filtro' em branco. Preencha todos!")
+                return None
+
+            df['filtro'] = df['filtro'].astype(str).str.lower().str.strip()
+
+            # 3. TRATAMENTO DE ERRO: Palavras incorretas
+            valores_invalidos = df[~df['filtro'].isin(['meta', 'tudo'])]
+            if not valores_invalidos.empty:
+                errados = valores_invalidos['filtro'].unique()
+                print(
+                    f"Log (FileHandler): [ERRO FATAL] Erro na planilha de alocação! Filtro inválido encontrado: {errados}. Use apenas 'meta' ou 'tudo'.")
+                return None
+
+            cotas_dict = {}
+            for index, row in df.iterrows():
+                usuario = str(row['usuario']).strip()
+                cotas_dict[usuario] = {
+                    'cota': int(row['cota']),
+                    'filtro': row['filtro']
+                }
             return cotas_dict
+
         except Exception as e:
-            print(f"Log (FileHandler): Erro ao ler planilha de cotas: {e}")
+            print(
+                f"Log (FileHandler): [ERRO FATAL] Falha ao ler a planilha 'matriz_alocacao.xlsx'. Verifique se ela está aberta em outro programa. Erro: {e}")
             return None
 
     def ler_e_ordenar_backlog(self, nome_arquivo: str, coluna_data: str):
-        """Lê o export do Radar dentro da pasta de bases extraídas."""
+        """Lê o export do Radar e ETIQUETA se o pedido é Meta ou não."""
         caminho_completo = os.path.join(Config.PATH_BASES_EXTRAIDAS, nome_arquivo)
-
         print(f"Log (FileHandler): Inspecionando o arquivo {caminho_completo}...")
 
         try:
-            # 1. Leitura do TSV da TIM (UTF-16)
             df = pd.read_csv(caminho_completo, sep='\t', encoding='utf-16', decimal=',', thousands='.')
-
-            # 2. DEDUPLICAÇÃO: Garante que cada pedido apareça apenas uma vez
-            # O Radar exporta uma linha por acesso, aqui filtramos para o pedido único
-            total_antes = len(df)
             df = df.drop_duplicates(subset=['Pedido'])
-            total_depois = len(df)
 
-            if total_antes != total_depois:
-                print(f"Log (FileHandler): Removidos {total_antes - total_depois} registros duplicados/acessos.")
-
-            # 3. AJUSTE DINÂMICO DE COLUNA: Resolve 'Data Entrada' vs 'Data de Entrada'
-            if coluna_data not in df.columns:
-                colunas_possiveis = [c for c in df.columns if 'Data' in c and 'Entrada' in c]
-                if colunas_possiveis:
-                    coluna_data = colunas_possiveis[0]
-                else:
-                    print(f"Log (FileHandler): Erro - Coluna de data não encontrada. Colunas: {list(df.columns)}")
-                    return None
-
-            # 4. FILTRO 'USUÁRIO TRATANDO': Pega apenas o que está livre (NaN ou Vazio)
             if 'Usuario Tratando' in df.columns:
-                print("Log (FileHandler): Filtrando apenas pedidos sem operador...")
                 df = df[df['Usuario Tratando'].isna() | (df['Usuario Tratando'].astype(str).str.strip() == '')]
 
-            # 5. LIMPEZA E CONVERSÃO: Garante que 'Pedido' seja número e remove lixo
+            # ETIQUETAGEM 'IS_META'
+            coluna_tipo = 'Tipo de Contratação'
+            tipos_meta = ['Novo', 'Renegociação + Aditivo', 'Aditivo']
+
+            if coluna_tipo in df.columns:
+                df[coluna_tipo] = df[coluna_tipo].astype(str).str.strip()
+                df['IsMeta'] = df[coluna_tipo].isin(tipos_meta)
+            else:
+                print(f"Log (FileHandler): AVISO - Coluna '{coluna_tipo}' não encontrada. Assumindo que NADA é Meta.")
+                df['IsMeta'] = False
+
             df['Pedido'] = pd.to_numeric(df['Pedido'], errors='coerce')
             df = df.dropna(subset=['Pedido'])
 
-            # 6. ORDENAÇÃO FIFO: Do mais antigo para o mais novo
-            # 'dayfirst=True' é vital para o formato brasileiro DD/MM/AAAA
-            df[coluna_data] = pd.to_datetime(df[coluna_data], dayfirst=True, errors='coerce')
-            df = df.sort_values(by=coluna_data, ascending=True)
+            colunas_possiveis = [c for c in df.columns if 'Data' in c and 'Entrada' in c]
+            coluna_data_real = colunas_possiveis[0] if colunas_possiveis else coluna_data
 
-            print(f"Log (FileHandler): Backlog finalizado! {len(df)} pedidos ÚNICOS prontos para alocação.")
+            df[coluna_data_real] = pd.to_datetime(df[coluna_data_real], dayfirst=True, errors='coerce')
+            df = df.sort_values(by=coluna_data_real, ascending=True)
+
+            print(f"Log (FileHandler): Backlog finalizado! {len(df)} pedidos prontos para roteamento.")
             return df.to_dict('records')
 
         except Exception as e:

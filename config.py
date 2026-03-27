@@ -3,10 +3,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
 class Config:
     # --- CAMINHOS FIXOS ---
-    PATH_COTAS = r"C:\Users\LEO_USER\Desktop\cotas_teste.xlsx"
+    PATH_COTAS = r"C:\Users\LEO_USER\Desktop\matriz_alocacao.xlsx"
     PATH_BASES_EXTRAIDAS = r"C:\Users\LEO_USER\Downloads"
 
     # --- CREDENCIAIS (Windows Env) ---

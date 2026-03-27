@@ -34,60 +34,82 @@ class Maestro:
             portal.acessar_radar_classico()
             nome_arquivo_base = portal.baixar_base_documentacao()
 
-            # 4. Processamento de Dados (Backlog e Planilha no Desktop)
+            # 4. Processamento de Dados (Backlog e Matriz no Desktop)
             backlog = self.arquivos.ler_e_ordenar_backlog(nome_arquivo_base, "Data de Entrada")
             cotas = self.arquivos.ler_planilha_cotas(Config.PATH_COTAS)
 
+            # O Maestro aborta se o FileHandler encontrou qualquer erro na planilha
             if not backlog or not cotas:
-                msg_erro = "Backlog ou Planilha de Cotas não processados. Verifique os arquivos."
+                msg_erro = "Processo abortado ACT. Verifique os alertas do FileHandler acima."
                 print(f"Log (Maestro): {msg_erro}")
                 self.logger.registrar(f"ERRO: {msg_erro}")
                 return
 
-            # 5. Configura o Distribuidor e inicia sessão de Log
+            # --- CALCULANDO A META TOTAL DA EQUIPE ---
+            total_cotas = sum(info['cota'] for info in cotas.values())
+            alocacoes_realizadas = 0
+
+            # 5. Configura o Distribuidor Roteador e inicia sessão de Log
             distribuidor = DistribuidorRoundRobin(cotas)
-            self.logger.iniciar_sessao(len(backlog))
+            self.logger.iniciar_sessao(total_cotas)
             portal.preparar_tela_alocacao()
 
-            print(f"Log (Maestro): Iniciando alocação de {len(backlog)} pedidos únicos...")
+            print(
+                f"Log (Maestro): Iniciando rodada. Meta da equipe: {total_cotas} pedidos. (Backlog total disponível: {len(backlog)}).")
 
-            # 6. Loop de Alocação com Persistência e Auditoria
+            # 6. Loop de Alocação com foco na META [X/Y]
             for item in backlog:
+
+                # --- A TRAVA INTELIGENTE ---
+                # Se não há mais ninguém na matriz com cota ou a meta foi batida, encerra!
+                if not distribuidor.analistas or alocacoes_realizadas >= total_cotas:
+                    print(f"\nLog (Maestro): Meta atingida ou todas as cotas esgotadas! Encerrando a rodada mais cedo.")
+                    break
+
                 pedido_id = item.get('Pedido')
+                is_meta = item.get('IsMeta', False)
+
                 sucesso_alocacao = False
                 tentativas = 0
                 max_tentativas = len(distribuidor.analistas)
 
                 while not sucesso_alocacao and tentativas < max_tentativas:
-                    proximo_analista = distribuidor.obter_proximo_usuario()
-                    if not proximo_analista: break
+                    proximo_analista = distribuidor.obter_proximo_usuario(is_meta)
 
-                    print(f"Log (Maestro): Tentando Pedido {pedido_id} -> Analista {proximo_analista}")
+                    if not proximo_analista:
+                        # Tiramos o print de "ignorado" para não poluir a tela
+                        break
 
-                    # A função agora retorna uma string de status
+                    # Exibe a próxima alocação pretendida e a meta
+                    print(
+                        f"Log (Maestro): [{alocacoes_realizadas + 1}/{total_cotas}] Tentando Pedido {pedido_id} -> Analista {proximo_analista}")
+
                     status = portal.alocar_pedido(pedido_id, proximo_analista)
 
                     if status == "SUCCESS":
                         sucesso_alocacao = True
                         distribuidor.consumir_cota(proximo_analista)
+
+                        alocacoes_realizadas += 1  # Computa o sucesso
+
                         self.logger.registrar(f"SUCESSO: Pedido {pedido_id} -> {proximo_analista}")
-                        print(f"Log (Maestro): [OK] Pedido {pedido_id} finalizado.")
+                        print(
+                            f"Log (Maestro): [{alocacoes_realizadas}/{total_cotas}] [OK] Pedido {pedido_id} finalizado.")
 
                     elif status == "INVALID_LOGIN":
-                        # Só desativa se o Radar expressamente rejeitou o login
-                        print(f"Log (Maestro): [ERRO] Login {proximo_analista} inválido. Desativando...")
-                        self.logger.registrar(f"FALHA: Login {proximo_analista} inválido.")
+                        print(
+                            f"Log (Maestro): [{alocacoes_realizadas + 1}/{total_cotas}] [ERRO] Login {proximo_analista} invalido. Desativando...")
+                        self.logger.registrar(f"FALHA: Login {proximo_analista} invalido para o pedido {pedido_id}.")
                         distribuidor.desativar_usuario(proximo_analista)
                         tentativas += 1
 
                     else:  # status == "ERROR"
-                        # Erro técnico ou timeout: Não desativa o usuário!
                         print(
-                            f"Log (Maestro): [AVISO] Erro técnico com {proximo_analista}. Tentando próximo analista sem desativar...")
+                            f"Log (Maestro): [{alocacoes_realizadas + 1}/{total_cotas}] [AVISO] Erro tecnico com {proximo_analista}. Tentando proximo analista...")
                         tentativas += 1
 
             self.logger.finalizar_sessao()
-            print("Log (Maestro): Backlog processado com sucesso absoluto!")
+            print("Log (Maestro): Backlog ACT processado com sucesso absoluto!")
 
         except Exception as e:
             msg_fatal = f"ERRO FATAL DURANTE A EXECUÇÃO: {str(e)}"
