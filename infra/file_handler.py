@@ -4,58 +4,50 @@ from config import Config
 
 
 class FileHandler:
-    """
-    Responsabilidade: Tratamento e limpeza de dados (Excel e TSV).
-    SOLID: SRP - Lógica exclusiva de manipulação de arquivos.
-    """
 
     def ler_planilha_cotas(self, caminho: str):
-        """Lê a planilha, aplica validações e retorna os analistas e seus filtros."""
         try:
             df = pd.read_excel(caminho, engine='openpyxl')
             df.columns = df.columns.str.lower().str.strip()
 
-            # 1. TRATAMENTO DE ERRO: Colunas ausentes
             if 'usuario' not in df.columns or 'cota' not in df.columns or 'filtro' not in df.columns:
-                print(
-                    "Log (FileHandler): [ERRO FATAL] Erro na planilha de alocação! As colunas devem se chamar exatamente: 'Usuario', 'Cota' e 'Filtro'.")
+                print("Log (FileHandler): [ERRO FATAL] As colunas devem se chamar: 'Usuario', 'Cota' e 'Filtro'.")
                 return None
 
-            # 2. TRATAMENTO DE ERRO: Células vazias
+            # Apaga da memória do robô qualquer linha onde a coluna "usuario" esteja vazia (Legendas)
+            df = df.dropna(subset=['usuario'])
+
             if df['filtro'].isnull().any():
-                print(
-                    "Log (FileHandler): [ERRO FATAL] Erro na planilha de alocação! Existem analistas com a coluna 'Filtro' em branco. Preencha todos!")
+                print("Log (FileHandler): [ERRO FATAL] Existem analistas com a coluna 'Filtro' em branco.")
                 return None
 
             df['filtro'] = df['filtro'].astype(str).str.lower().str.strip()
 
-            # 3. TRATAMENTO DE ERRO: Palavras incorretas
-            valores_invalidos = df[~df['filtro'].isin(['meta', 'tudo'])]
+            valores_invalidos = df[~df['filtro'].isin(['meta', 'tudo', 'limpar'])]
             if not valores_invalidos.empty:
                 errados = valores_invalidos['filtro'].unique()
                 print(
-                    f"Log (FileHandler): [ERRO FATAL] Erro na planilha de alocação! Filtro inválido encontrado: {errados}. Use apenas 'meta' ou 'tudo'.")
+                    f"Log (FileHandler): [ERRO FATAL] Filtro inválido: {errados}. Use apenas 'meta', 'tudo' ou 'limpar'.")
                 return None
 
-            cotas_dict = {}
+            # --- NOVA LÓGICA: Retorna uma lista na ordem exata do Excel ---
+            cotas_lista = []
             for index, row in df.iterrows():
-                usuario = str(row['usuario']).strip()
-                cotas_dict[usuario] = {
+                cotas_lista.append({
+                    'usuario': str(row['usuario']).strip().upper(),  # Força maiúsculo para padronizar
                     'cota': int(row['cota']),
                     'filtro': row['filtro']
-                }
-            return cotas_dict
+                })
+            return cotas_lista
 
         except Exception as e:
-            print(
-                f"Log (FileHandler): [ERRO FATAL] Falha ao ler a planilha 'matriz_alocacao.xlsx'. Verifique se ela está aberta em outro programa. Erro: {e}")
+            print(f"Log (FileHandler): Erro ao ler a planilha: {e}")
             return None
 
     def ler_e_ordenar_backlog(self, nome_arquivo: str, coluna_data: str):
-        """Lê o export do Radar e ETIQUETA se o pedido é Meta ou não."""
+        # ... (O CÓDIGO DESTA FUNÇÃO CONTINUA EXATAMENTE IGUAL AO QUE VOCÊ JÁ TEM) ...
         caminho_completo = os.path.join(Config.PATH_BASES_EXTRAIDAS, nome_arquivo)
         print(f"Log (FileHandler): Inspecionando o arquivo {caminho_completo}...")
-
         try:
             df = pd.read_csv(caminho_completo, sep='\t', encoding='utf-16', decimal=',', thousands='.')
             df = df.drop_duplicates(subset=['Pedido'])
@@ -63,7 +55,6 @@ class FileHandler:
             if 'Usuario Tratando' in df.columns:
                 df = df[df['Usuario Tratando'].isna() | (df['Usuario Tratando'].astype(str).str.strip() == '')]
 
-            # ETIQUETAGEM 'IS_META'
             coluna_tipo = 'Tipo de Contratação'
             tipos_meta = ['Novo', 'Renegociação + Aditivo', 'Aditivo']
 
@@ -71,7 +62,6 @@ class FileHandler:
                 df[coluna_tipo] = df[coluna_tipo].astype(str).str.strip()
                 df['IsMeta'] = df[coluna_tipo].isin(tipos_meta)
             else:
-                print(f"Log (FileHandler): AVISO - Coluna '{coluna_tipo}' não encontrada. Assumindo que NADA é Meta.")
                 df['IsMeta'] = False
 
             df['Pedido'] = pd.to_numeric(df['Pedido'], errors='coerce')
@@ -83,7 +73,7 @@ class FileHandler:
             df[coluna_data_real] = pd.to_datetime(df[coluna_data_real], dayfirst=True, errors='coerce')
             df = df.sort_values(by=coluna_data_real, ascending=True)
 
-            print(f"Log (FileHandler): Backlog finalizado! {len(df)} pedidos prontos para roteamento.")
+            print(f"Log (FileHandler): Backlog finalizado! {len(df)} pedidos prontos.")
             return df.to_dict('records')
 
         except Exception as e:

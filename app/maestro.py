@@ -29,41 +29,108 @@ class Maestro:
             auth = AuthService(page)
             auth.realizar_login(usuario_tim, senha_tim)
 
-            # 3. Portal e Extração Massiva (TSV disfarçado de XLS)
+            # 3. Portal
             portal = RadarPortal(context, page)
             portal.acessar_radar_classico()
-            nome_arquivo_base = portal.baixar_base_documentacao()
 
-            # 4. Processamento de Dados (Backlog e Matriz no Desktop)
-            backlog = self.arquivos.ler_e_ordenar_backlog(nome_arquivo_base, "Data de Entrada")
-            cotas = self.arquivos.ler_planilha_cotas(Config.PATH_COTAS)
-
-            # O Maestro aborta se o FileHandler encontrou qualquer erro na planilha
-            if not backlog or not cotas:
-                msg_erro = "Processo abortado ACT. Verifique os alertas do FileHandler acima."
+            # Lemos a planilha bruta antes de tudo (Agora ela é uma lista mantendo a ordem exata do Excel)
+            cotas_brutas = self.arquivos.ler_planilha_cotas(Config.PATH_COTAS)
+            if not cotas_brutas:
+                msg_erro = "Processo abortado ACT. Verifique os alertas do FileHandler."
                 print(f"Log (Maestro): {msg_erro}")
                 self.logger.registrar(f"ERRO: {msg_erro}")
                 return
 
-            # --- CALCULANDO A META TOTAL DA EQUIPE ---
-            total_cotas = sum(info['cota'] for info in cotas.values())
+            # ==========================================================
+            # --- DETECTOR DE MODO DE OPERAÇÃO E FILTRAGEM ---
+            # ==========================================================
+            # A "Regra de Ouro": A primeira linha do Excel define o jogo da rodada!
+            primeira_linha = cotas_brutas[0]
+            is_modo_limpeza = (primeira_linha['filtro'] == 'limpar')
+
+            cotas_validas = {}
+            usuarios_ignorados = []
+
+            # Lê de cima para baixo. Quem obedecer à primeira linha entra, quem divergir (ou for duplicado) é ignorado.
+            for linha in cotas_brutas:
+                usr = linha['usuario']
+                filtro = linha['filtro']
+                cota = linha['cota']
+
+                if is_modo_limpeza:
+                    if filtro == 'limpar' and usr not in cotas_validas:
+                        cotas_validas[usr] = {'cota': cota, 'filtro': filtro}
+                    else:
+                        usuarios_ignorados.append(f"{usr} ({filtro})")
+                else: # Modo Alocação
+                    if filtro in ['meta', 'tudo'] and usr not in cotas_validas:
+                        cotas_validas[usr] = {'cota': cota, 'filtro': filtro}
+                    else:
+                        usuarios_ignorados.append(f"{usr} ({filtro})")
+
+            # Proteção caso TODOS os usuários tenham sido ignorados e não sobre ninguém para trabalhar
+            if not cotas_validas:
+                msg_erro = "Nenhum usuário válido sobrou para a operação após a filtragem. Abortando."
+                print(f"Log (Maestro): {msg_erro}")
+                self.logger.registrar(f"ERRO: {msg_erro}")
+                return
+
+            # ==========================================================
+            # --- CAMINHO A: MODO LIMPEZA / EXPURGO ---
+            # ==========================================================
+            if is_modo_limpeza:
+                print("\n========================================================")
+                print("Log (Maestro): --- MODO LIMPEZA ATIVADO ---")
+                print("========================================================\n")
+                self.logger.iniciar_sessao("MÚLTIPLOS (MODO EXPURGO)")
+
+                # Vai direto para Documentação (Sem baixar base e sem RoundRobin)
+                portal.acessar_tela_documentacao()
+
+                for analista in cotas_validas.keys():
+                    print(f"Log (Maestro): Iniciando varredura para {analista}...")
+                    removidos = portal.desalocar_pedidos_usuario(analista)
+
+                    self.logger.registrar(f"LIMPEZA: {removidos} pedidos removidos de {analista}.")
+                    print(f"Log (Maestro): [OK] Analista {analista} limpo! Total destravado: {removidos}.\n")
+
+                # AVISO DE EXCEÇÃO NO FINAL
+                if usuarios_ignorados:
+                    alerta = f"AVISO: A rodada iniciou no modo EXPURGO. Analistas com filtro divergente ou duplicados foram ignorados: {', '.join(usuarios_ignorados)}"
+                    print(f"Log (Maestro): {alerta}")
+                    self.logger.registrar(alerta)
+
+                self.logger.finalizar_sessao()
+                print("Log (Maestro): Operação de Limpeza concluída com sucesso absoluto!")
+                return  # Interrompe a execução, pois a limpeza terminou.
+
+            # ==========================================================
+            # --- CAMINHO B: MODO ALOCAÇÃO PADRÃO ---
+            # ==========================================================
+            print("\n========================================================")
+            print("Log (Maestro): --- MODO ALOCAÇÃO ATIVADO ---")
+            print("========================================================\n")
+
+            nome_arquivo_base = portal.baixar_base_documentacao()
+            backlog = self.arquivos.ler_e_ordenar_backlog(nome_arquivo_base, "Data de Entrada")
+
+            if not backlog:
+                print("Log (Maestro): Backlog vazio ou com erro. Abortando.")
+                return
+
+            total_cotas = sum(info['cota'] for info in cotas_validas.values())
             alocacoes_realizadas = 0
 
-            # 5. Configura o Distribuidor Roteador e inicia sessão de Log
-            distribuidor = DistribuidorRoundRobin(cotas)
+            distribuidor = DistribuidorRoundRobin(cotas_validas)
             self.logger.iniciar_sessao(total_cotas)
             portal.preparar_tela_alocacao()
 
             print(
-                f"Log (Maestro): Iniciando rodada. Meta da equipe: {total_cotas} pedidos. (Backlog total disponível: {len(backlog)}).")
+                f"Log (Maestro): Iniciando rodada. Meta da equipe: {total_cotas} pedidos. (Backlog disponível: {len(backlog)}).")
 
-            # 6. Loop de Alocação com foco na META [X/Y]
             for item in backlog:
-
-                # --- A TRAVA INTELIGENTE ---
-                # Se não há mais ninguém na matriz com cota ou a meta foi batida, encerra!
                 if not distribuidor.analistas or alocacoes_realizadas >= total_cotas:
-                    print(f"\nLog (Maestro): Meta atingida ou todas as cotas esgotadas! Encerrando a rodada mais cedo.")
+                    print(f"\nLog (Maestro): Meta atingida ou todas as cotas esgotadas! Encerrando.")
                     break
 
                 pedido_id = item.get('Pedido')
@@ -77,36 +144,37 @@ class Maestro:
                     proximo_analista = distribuidor.obter_proximo_usuario(is_meta)
 
                     if not proximo_analista:
-                        # Tiramos o print de "ignorado" para não poluir a tela
                         break
 
-                    # Exibe a próxima alocação pretendida e a meta
                     print(
                         f"Log (Maestro): [{alocacoes_realizadas + 1}/{total_cotas}] Tentando Pedido {pedido_id} -> Analista {proximo_analista}")
-
                     status = portal.alocar_pedido(pedido_id, proximo_analista)
 
                     if status == "SUCCESS":
                         sucesso_alocacao = True
                         distribuidor.consumir_cota(proximo_analista)
-
-                        alocacoes_realizadas += 1  # Computa o sucesso
-
+                        alocacoes_realizadas += 1
                         self.logger.registrar(f"SUCESSO: Pedido {pedido_id} -> {proximo_analista}")
                         print(
                             f"Log (Maestro): [{alocacoes_realizadas}/{total_cotas}] [OK] Pedido {pedido_id} finalizado.")
 
                     elif status == "INVALID_LOGIN":
                         print(
-                            f"Log (Maestro): [{alocacoes_realizadas + 1}/{total_cotas}] [ERRO] Login {proximo_analista} invalido. Desativando...")
+                            f"Log (Maestro): [{alocacoes_realizadas + 1}/{total_cotas}] [ERRO] Login {proximo_analista} invalido.")
                         self.logger.registrar(f"FALHA: Login {proximo_analista} invalido para o pedido {pedido_id}.")
                         distribuidor.desativar_usuario(proximo_analista)
                         tentativas += 1
 
-                    else:  # status == "ERROR"
+                    else:
                         print(
-                            f"Log (Maestro): [{alocacoes_realizadas + 1}/{total_cotas}] [AVISO] Erro tecnico com {proximo_analista}. Tentando proximo analista...")
+                            f"Log (Maestro): [{alocacoes_realizadas + 1}/{total_cotas}] [AVISO] Erro tecnico com {proximo_analista}.")
                         tentativas += 1
+
+            # AVISO DE EXCEÇÃO NO FINAL
+            if usuarios_ignorados:
+                alerta = f"AVISO: A rodada iniciou no modo ALOCAÇÃO. Analistas com filtro 'limpar' ou duplicados foram ignorados: {', '.join(usuarios_ignorados)}"
+                print(f"\nLog (Maestro): {alerta}")
+                self.logger.registrar(alerta)
 
             self.logger.finalizar_sessao()
             print("Log (Maestro): Backlog ACT processado com sucesso absoluto!")
@@ -117,5 +185,4 @@ class Maestro:
             self.logger.registrar(msg_fatal)
 
         finally:
-            # Encerra o navegador mas mantém o log salvo
             self.factory.encerrar()

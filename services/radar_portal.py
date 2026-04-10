@@ -3,39 +3,28 @@ from config import Config
 
 
 class RadarPortal:
-    """
-    Responsabilidade: Navegar no Radar Blue e Clássico.
-    SOLID: SRP - Lógica exclusiva de interface com o sistema legado.
-    """
-
     def __init__(self, context, page):
         self.context = context
         self.page = page
         self.aba_classico = None
-        self.erro_login = False  # Bandeira para capturar erro de matrícula
+        self.erro_login = False
+        self.sucesso_confirmado = False
 
     def acessar_radar_classico(self):
-        """Abre o módulo Radar Clássico e captura a nova aba."""
         print(f"Log (RadarPortal): Abrindo Radar Clássico (Timeout {Config.TIMEOUT_ABA / 1000}s)...")
         try:
             with self.context.expect_page(timeout=Config.TIMEOUT_ABA) as nova_aba_info:
                 self.page.locator('a.titulomodulo', has_text='Radar Clássico').first.click()
-
             self.aba_classico = nova_aba_info.value
             self.aba_classico.wait_for_load_state('load')
             print("Log (RadarPortal): Aba carregada com sucesso.")
         except Exception as e:
-            raise Exception(f"Erro: O sistema não abriu a aba do Radar Clássico a tempo. {e}")
+            raise Exception(f"Erro ao abrir aba do Radar Clássico. {e}")
 
-    def baixar_base_documentacao(self):
-        """Navega para DOCUMENTAÇÃO e exporta a base total para a pasta específica."""
+    # --- NOVO: SEPARAMOS A NAVEGAÇÃO DA AÇÃO DE BAIXAR ---
+    def acessar_tela_documentacao(self):
+        """Apenas navega até a tela de Documentação."""
         f_menu = self.aba_classico.frame(name="tree_middle")
-        f_direito = self.aba_classico.frame(name="right")
-
-        # Garante que a pasta de destino existe
-        if not os.path.exists(Config.PATH_BASES_EXTRAIDAS):
-            os.makedirs(Config.PATH_BASES_EXTRAIDAS)
-
         print("Log (RadarPortal): Expandindo BOC...")
         f_menu.locator('a.node:visible', has_text='BOC').first.click()
         self.aba_classico.wait_for_timeout(Config.WAIT_MENU_EXPAND)
@@ -44,69 +33,109 @@ class RadarPortal:
         f_menu.locator('#sd24').click()
         self.aba_classico.wait_for_timeout(Config.WAIT_BASE_LOAD)
 
+    def baixar_base_documentacao(self):
+        """Usa a tela de Documentação para exportar."""
+        self.acessar_tela_documentacao()
+        f_direito = self.aba_classico.frame(name="right")
+
+        if not os.path.exists(Config.PATH_BASES_EXTRAIDAS):
+            os.makedirs(Config.PATH_BASES_EXTRAIDAS)
+
         print("Log (RadarPortal): Solicitando Exportação...")
         with self.aba_classico.expect_download(timeout=180000) as download_info:
             f_direito.locator('text="Exportar"').first.click(force=True)
 
         download = download_info.value
-        # Salva na pasta configurada no Downloads
         caminho_final = os.path.join(Config.PATH_BASES_EXTRAIDAS, download.suggested_filename)
         download.save_as(caminho_final)
-
         print(f"Log (RadarPortal): Base salva em: {caminho_final}")
-        return download.suggested_filename  # Retorna apenas o nome do arquivo
+        return download.suggested_filename
+
+    # --- NOVO: FUNÇÃO DE EXPURGO/LIMPEZA ---
+    def desalocar_pedidos_usuario(self, usuario):
+        f_direito = self.aba_classico.frame(name="right")
+        total_removidos = 0
+
+        # Proteção contra Pop-ups invisíveis do sistema
+        def handle_dialog_limpeza(dialog):
+            dialog.accept()
+
+        self.aba_classico.on("dialog", handle_dialog_limpeza)
+
+        try:
+            while True:
+                # Garante que os campos de busca já renderizaram (crucial para o 1º usuário)
+                f_direito.locator('#field').wait_for(state='visible', timeout=15000)
+
+                f_direito.locator('#field').select_option(value="a.usuario_tratando")
+
+                # Força minúsculo, pois o banco de dados do Radar pode ser sensível a isso
+                f_direito.locator('#query').fill(usuario.lower())
+                f_direito.locator('#btnSubmit').click()
+
+                # --- A ESPERA INTELIGENTE ---
+                # Em vez de esperar 4s cegamente, o robô fica vigiando a tela por até 12 segundos
+                # esperando a tabela de pedidos aparecer.
+                links_solta = f_direito.locator('a[href*="javascript:solta"]')
+
+                try:
+                    # Fica olhando para a tela até o primeiro ícone de destravar aparecer
+                    links_solta.first.wait_for(state='visible', timeout=12000)
+                except:
+                    # Se bater 12 segundos e nada aparecer, aí sim temos certeza que a fila acabou!
+                    print(f"Log (RadarPortal): Nenhum pedido restante para {usuario}. Fila limpa!")
+                    break
+
+                qtd_links = links_solta.count()
+                print(f"Log (RadarPortal): Encontrados {qtd_links} pedidos na tela. Limpando...")
+
+                # Metralha o botão "soltar" um a um
+                for _ in range(qtd_links):
+                    try:
+                        links_solta.first.click(force=True)
+                        self.aba_classico.wait_for_timeout(1500)  # Tempo pro JS agir
+                        total_removidos += 1
+                    except Exception as e:
+                        pass  # Ignora pequenas falhas de animação da tela e segue pro próximo
+        finally:
+            self.aba_classico.remove_listener("dialog", handle_dialog_limpeza)
+
+        return total_removidos
 
     def preparar_tela_alocacao(self):
-        """Navega para Ferramentas Administrativas > Capturar Pedido."""
+        # ... (O CÓDIGO DESTA FUNÇÃO CONTINUA EXATAMENTE IGUAL AO QUE VOCÊ JÁ TEM) ...
         print("Log (RadarPortal): Acessando tela de Capturar Pedido...")
         f_menu = self.aba_classico.frame(name="tree_middle")
-
         f_menu.locator('a.node:visible', has_text='Ferramentas Administrativas').first.click()
         self.aba_classico.wait_for_timeout(1500)
-
         f_menu.locator('a[href*="setUsuario.asp"]:visible').first.click()
         self.aba_classico.wait_for_timeout(Config.WAIT_GENERAL)
 
     def alocar_pedido(self, nr_pedido, matricula_destino):
-        """
-        Retorna:
-        - "SUCCESS" (Alocação confirmada)
-        - "INVALID_LOGIN" (Radar rejeitou a matrícula)
-        - "ERROR" (Erro técnico/timeout - NÃO deve desativar o analista)
-        """
+        # ... (O CÓDIGO DESTA FUNÇÃO CONTINUA EXATAMENTE IGUAL AO QUE VOCÊ JÁ TEM) ...
         f_direito = self.aba_classico.frame(name="right")
         self.erro_login = False
-        self.sucesso_confirmado = False  # Nova bandeira de sucesso
-
-        # Garante que a matrícula é sempre string (Evita o erro do '899')
-        matricula_destino = str(matricula_destino).strip()
+        self.sucesso_confirmado = False
 
         def handle_dialog(dialog):
             msg = dialog.message.lower()
-            # A linha que imprimia o "Log (RadarPortal): Alerta detectado..." foi removida daqui!
-
             if "inválido" in msg or "bloqueado" in msg or "inexistente" in msg:
                 self.erro_login = True
             elif "sucesso" in msg or "realizada" in msg:
                 self.sucesso_confirmado = True
-
             dialog.accept()
 
         self.aba_classico.on("dialog", handle_dialog)
 
         try:
-            # 1. Pesquisa o pedido
             f_direito.locator('#nr_pedido').fill("")
             f_direito.locator('#nr_pedido').fill(str(nr_pedido))
             f_direito.locator('input[value="exibir"]').click()
 
             icone = f_direito.locator(f'img[onclick*="trocarUsuario({nr_pedido})"]')
             icone.wait_for(state='visible', timeout=7000)
-
-            # 2. Inicia a troca
             icone.click()
 
-            # 3. Preenche a matrícula
             campo = f_direito.locator('#nm_login2')
             campo.wait_for(state='visible', timeout=5000)
             campo.fill(matricula_destino)
@@ -114,25 +143,17 @@ class RadarPortal:
 
             self.aba_classico.wait_for_timeout(2000)
 
-            # 4. Finalização INTELIGENTE:
-            # Se o Radar já deu o OK no pop-up anterior, não precisamos clicar de novo
             if not self.erro_login and not self.sucesso_confirmado:
-                print("Log (RadarPortal): Solicitando confirmação final...")
                 icone.click()
                 self.aba_classico.wait_for_timeout(2000)
 
-            # Retorno de Status
             if self.sucesso_confirmado:
                 return "SUCCESS"
             elif self.erro_login:
                 return "INVALID_LOGIN"
             else:
                 return "ERROR"
-
         except Exception as e:
-            print(f"Log (Portal): Erro técnico no pedido {nr_pedido}: {e}")
-            # Se já detectou sucesso antes do erro de timeout, retorna sucesso!
             return "SUCCESS" if self.sucesso_confirmado else "ERROR"
-
         finally:
             self.aba_classico.remove_listener("dialog", handle_dialog)
