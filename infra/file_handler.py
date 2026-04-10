@@ -30,11 +30,11 @@ class FileHandler:
                     f"Log (FileHandler): [ERRO FATAL] Filtro inválido: {errados}. Use apenas 'meta', 'tudo' ou 'limpar'.")
                 return None
 
-            # --- NOVA LÓGICA: Retorna uma lista na ordem exata do Excel ---
+            # --- LÓGICA: Retorna uma lista na ordem exata do Excel ---
             cotas_lista = []
             for index, row in df.iterrows():
                 cotas_lista.append({
-                    'usuario': str(row['usuario']).strip().upper(),  # Força maiúsculo para padronizar
+                    'usuario': str(row['usuario']).strip(),  # Mantém a formatação exata da planilha
                     'cota': int(row['cota']),
                     'filtro': row['filtro']
                 })
@@ -45,7 +45,6 @@ class FileHandler:
             return None
 
     def ler_e_ordenar_backlog(self, nome_arquivo: str, coluna_data: str):
-        # ... (O CÓDIGO DESTA FUNÇÃO CONTINUA EXATAMENTE IGUAL AO QUE VOCÊ JÁ TEM) ...
         caminho_completo = os.path.join(Config.PATH_BASES_EXTRAIDAS, nome_arquivo)
         print(f"Log (FileHandler): Inspecionando o arquivo {caminho_completo}...")
         try:

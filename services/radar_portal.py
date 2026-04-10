@@ -21,7 +21,7 @@ class RadarPortal:
         except Exception as e:
             raise Exception(f"Erro ao abrir aba do Radar Clássico. {e}")
 
-    # --- NOVO: SEPARAMOS A NAVEGAÇÃO DA AÇÃO DE BAIXAR ---
+    # --- SEPARAMOS A NAVEGAÇÃO DA AÇÃO DE BAIXAR ---
     def acessar_tela_documentacao(self):
         """Apenas navega até a tela de Documentação."""
         f_menu = self.aba_classico.frame(name="tree_middle")
@@ -51,7 +51,7 @@ class RadarPortal:
         print(f"Log (RadarPortal): Base salva em: {caminho_final}")
         return download.suggested_filename
 
-    # --- NOVO: FUNÇÃO DE EXPURGO/LIMPEZA ---
+    # --- FUNÇÃO DE EXPURGO/LIMPEZA ---
     def desalocar_pedidos_usuario(self, usuario):
         f_direito = self.aba_classico.frame(name="right")
         total_removidos = 0
@@ -69,8 +69,8 @@ class RadarPortal:
 
                 f_direito.locator('#field').select_option(value="a.usuario_tratando")
 
-                # Força minúsculo, pois o banco de dados do Radar pode ser sensível a isso
-                f_direito.locator('#query').fill(usuario.lower())
+                # Injeta a matrícula exatamente como ela foi extraída do Excel
+                f_direito.locator('#query').fill(usuario)
                 f_direito.locator('#btnSubmit').click()
 
                 # --- A ESPERA INTELIGENTE ---
@@ -103,7 +103,6 @@ class RadarPortal:
         return total_removidos
 
     def preparar_tela_alocacao(self):
-        # ... (O CÓDIGO DESTA FUNÇÃO CONTINUA EXATAMENTE IGUAL AO QUE VOCÊ JÁ TEM) ...
         print("Log (RadarPortal): Acessando tela de Capturar Pedido...")
         f_menu = self.aba_classico.frame(name="tree_middle")
         f_menu.locator('a.node:visible', has_text='Ferramentas Administrativas').first.click()
@@ -112,7 +111,6 @@ class RadarPortal:
         self.aba_classico.wait_for_timeout(Config.WAIT_GENERAL)
 
     def alocar_pedido(self, nr_pedido, matricula_destino):
-        # ... (O CÓDIGO DESTA FUNÇÃO CONTINUA EXATAMENTE IGUAL AO QUE VOCÊ JÁ TEM) ...
         f_direito = self.aba_classico.frame(name="right")
         self.erro_login = False
         self.sucesso_confirmado = False
