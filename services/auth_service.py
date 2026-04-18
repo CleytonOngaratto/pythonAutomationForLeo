@@ -3,8 +3,8 @@ from config import Config
 
 class AuthService:
     """
-    Responsabilidade: IAM
-    Princípio: SRP - Lógica exclusiva de Login.
+    Responsabilidade: IAM (Identity and Access Management)
+    Princípio: SRP - Lógica exclusiva de Login da TIM.
     """
 
     def __init__(self, page):
@@ -12,51 +12,52 @@ class AuthService:
         self.url_radar = Config.URL_RADAR_START
 
     def realizar_login(self, usuario, senha):
-        """Gerencia o fluxo de login em duas etapas da TIM."""
+        """Gerencia o fluxo de login no Ping Identity ou aproveita sessão ativa."""
         print(f"Log (AuthService): Navegando para {self.url_radar}...")
         self.page.goto(self.url_radar)
 
-        # Espera o carregamento inicial e possíveis redirecionamentos do IAM
+        # Espera o carregamento inicial e os redirecionamentos do sistema
         self.page.wait_for_load_state('networkidle')
         self.page.wait_for_timeout(3000)
 
         titulo = self.page.title().lower()
         url_atual = self.page.url.lower()
 
-        # Verifica se fomos interceptados pela tela de login
-        if "login" in url_atual or "authentication" in titulo or "iam" in url_atual:
-            print("Log (AuthService): Tela de login detectada. Iniciando Etapa 1 (Matrícula)...")
+        # --- A INTELIGÊNCIA RESTAURADA ---
+        # Verifica se fomos interceptados pela tela de login ou se já estamos logados
+        if "login" in url_atual or "authentication" in titulo or "iam" in url_atual or "ping" in url_atual:
+            print("Log (AuthService): Tela de login detectada. Iniciando preenchimento...")
 
-            # --- ETAPA 1: Identificar o usuário ---
-            # Tenta localizar o botão de conta salva (aquele <li> com seu ID)
-            conta_salva = self.page.locator(f'li#{usuario}')
+            try:
+                # --- FLUXO PING IDENTITY ATUALIZADO ---
+                print("Log (AuthService): Aguardando campos do Ping Identity...")
 
-            if conta_salva.is_visible():
-                print(f"Log (AuthService): Conta {usuario} encontrada no histórico. Clicando...")
-                conta_salva.click()
-            else:
-                print("Log (AuthService): Conta não listada. Preenchendo campo manualmente...")
-                # Busca pelo ID novo (#username) ou pelo antigo (#identifierInput)
-                campo_id = self.page.locator('#username, #identifierInput').first
-                campo_id.wait_for(state='visible', timeout=10000)
-                campo_id.fill(usuario)
-                # Usa o Enter nativo da página para ir para a próxima tela
-                campo_id.press("Enter")
-                self.page.wait_for_timeout(1000)
+                # Garante que o campo de usuário está pronto na tela
+                campo_user = self.page.locator('#username')
+                campo_user.wait_for(state='visible', timeout=15000)
 
-            # --- ETAPA 2: Senha ---
-            print("Log (AuthService): Aguardando campo de senha...")
-            campo_senha = self.page.locator('#password')
-            # Espera a animação de transição do Ping Identity
-            campo_senha.wait_for(state='visible', timeout=15000)
-            campo_senha.fill(senha)
+                print(f"Log (AuthService): Preenchendo usuário {usuario}...")
+                campo_user.click()
+                campo_user.fill("")
+                # Usamos o type para acionar os scripts JS do Ping Identity (como o uppercase automático)
+                campo_user.type(usuario.upper(), delay=50)
 
-            print("Log (AuthService): Submetendo credenciais...")
-            # O Enter aciona o onkeypress="return postOnReturn(event)" nativo do HTML da TIM
-            campo_senha.press("Enter")
+                print("Log (AuthService): Preenchendo senha...")
+                self.page.fill('#password', senha)
 
-            # Validação: Espera o botão principal do Radar aparecer para confirmar sucesso
-            self.page.locator('a.titulomodulo', has_text='Radar Clássico').first.wait_for(state='visible', timeout=30000)
-            print("Log (AuthService): Login concluído com sucesso!")
+                print("Log (AuthService): Clicando no botão Entrar...")
+                # Clique físico exigido pela nova versão do sistema
+                self.page.click('#signOnButton')
+
+            except Exception as e:
+                print(f"Log (AuthService): [ERRO] Falha na tela de login. Salvando evidência...")
+                self.page.screenshot(path="debug_login_ping.png")
+                raise e
         else:
+            # Se o cache do Chrome (USER_DATA_DIR) manteve a sessão viva, poupamos tempo!
             print("Log (AuthService): Sessão ativa detectada. Login pulado.")
+
+        # --- VALIDAÇÃO DE SUCESSO ---
+        print("Log (AuthService): Aguardando carregamento da interface do Radar...")
+        self.page.locator('a.titulomodulo', has_text='Radar Clássico').first.wait_for(state='visible', timeout=30000)
+        print("Log (AuthService): Login concluído e acesso confirmado!")

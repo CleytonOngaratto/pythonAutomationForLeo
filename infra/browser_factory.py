@@ -40,7 +40,9 @@ class BrowserFactory:
         self.browser = self.playwright.chromium.connect_over_cdp(f"http://localhost:{self.porta}")
 
         context = self.browser.contexts[0]
-        page = context.pages[0]
+
+        # Cria uma nova aba em branco, fugindo do redirecionamento da Microsoft/SharePoint
+        page = context.new_page()
         page.bring_to_front()
 
         return self.playwright, self.browser, context, page
