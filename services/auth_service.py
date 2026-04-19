@@ -23,38 +23,45 @@ class AuthService:
         titulo = self.page.title().lower()
         url_atual = self.page.url.lower()
 
-        # --- A INTELIGÊNCIA RESTAURADA ---
-        # Verifica se fomos interceptados pela tela de login ou se já estamos logados
         if "login" in url_atual or "authentication" in titulo or "iam" in url_atual or "ping" in url_atual:
-            print("Log (AuthService): Tela de login detectada. Iniciando preenchimento...")
+            print("Log (AuthService): Tela de login detectada. Iniciando preenchimento resiliente...")
 
             try:
-                # --- FLUXO PING IDENTITY ATUALIZADO ---
-                print("Log (AuthService): Aguardando campos do Ping Identity...")
-
-                # Garante que o campo de usuário está pronto na tela
-                campo_user = self.page.locator('#username')
+                # --- 1. BUSCA DINÂMICA DO CAMPO DE USUÁRIO ---
+                # O robô procura o ID novo (#identifierInput) ou o antigo (#username)
+                campo_user = self.page.locator('#username, #identifierInput').first
                 campo_user.wait_for(state='visible', timeout=15000)
 
                 print(f"Log (AuthService): Preenchendo usuário {usuario}...")
                 campo_user.click()
                 campo_user.fill("")
-                # Usamos o type para acionar os scripts JS do Ping Identity (como o uppercase automático)
                 campo_user.type(usuario.upper(), delay=50)
 
+                # --- 2. DETECÇÃO DE FLUXO (1 Etapa vs 2 Etapas) ---
+                # Verifica se o campo de senha já está visível na tela
+                campo_senha = self.page.locator('#password')
+
+                if not campo_senha.is_visible():
+                    print("Log (AuthService): Fluxo de 2 etapas detectado. Clicando em 'Next'...")
+                    # Clica no botão para avançar para a tela de senha
+                    self.page.locator('#signOnButton').first.click()
+                    # Aguarda a animação da página trazer o campo de senha
+                    campo_senha.wait_for(state='visible', timeout=15000)
+
+                # --- 3. SENHA E SUBMIT FINAL ---
                 print("Log (AuthService): Preenchendo senha...")
-                self.page.fill('#password', senha)
+                campo_senha.fill(senha)
 
                 print("Log (AuthService): Clicando no botão Entrar...")
-                # Clique físico exigido pela nova versão do sistema
-                self.page.click('#signOnButton')
+                # Procura o botão de submit usando ID ou classe genérica do Ping
+                botao_entrar = self.page.locator('#signOnButton, .ping-button.allow').first
+                botao_entrar.click()
 
             except Exception as e:
                 print(f"Log (AuthService): [ERRO] Falha na tela de login. Salvando evidência...")
                 self.page.screenshot(path="debug_login_ping.png")
                 raise e
         else:
-            # Se o cache do Chrome (USER_DATA_DIR) manteve a sessão viva, poupamos tempo!
             print("Log (AuthService): Sessão ativa detectada. Login pulado.")
 
         # --- VALIDAÇÃO DE SUCESSO ---
