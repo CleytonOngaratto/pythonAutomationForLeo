@@ -81,8 +81,8 @@ class RadarPortal:
                 try:
                     # Fica olhando para a tela até o primeiro ícone de destravar aparecer
                     links_solta.first.wait_for(state='visible', timeout=12000)
-                except:
-                    # Se bater 12 segundos e nada aparecer, aí sim temos certeza que a fila acabou!
+                except Exception:
+                    # Se bater 12 segundos sem resultado, a fila está limpa
                     print(f"Log (RadarPortal): Nenhum pedido restante para {usuario}. Fila limpa!")
                     break
 

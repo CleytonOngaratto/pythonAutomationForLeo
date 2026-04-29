@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from datetime import datetime
 
 
@@ -9,8 +10,8 @@ class AuditLogger:
     """
 
     def __init__(self):
-        # O arquivo será sempre este mesmo no seu Desktop
-        self.caminho_log = r"C:\Users\LEO_USER\Desktop\relatorio_alocacao.txt"
+        _padrao = str(Path.home() / "Desktop" / "relatorio_alocacao.txt")
+        self.caminho_log = os.getenv("PATH_LOG_ALOCACAO", _padrao)
 
     def registrar(self, mensagem: str):
         """Escreve uma linha de log com a data e hora exata da ação."""

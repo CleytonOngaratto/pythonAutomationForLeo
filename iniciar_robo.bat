@@ -6,8 +6,8 @@ echo         SISTEMA DE ALOCACAO INTELIGENTE - ACT / TIM
 echo ========================================================
 echo.
 
-:: 1. Entra na pasta
-cd /d "C:\Users\LEO_USER\DEV\sistemaautomacao"
+:: 1. Entra na pasta onde este .bat está localizado
+cd /d "%~dp0"
 
 :: 2. Tenta ativar o ambiente
 echo [*] Preparando ambiente corporativo...

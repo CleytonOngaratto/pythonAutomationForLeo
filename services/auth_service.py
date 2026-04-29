@@ -1,3 +1,4 @@
+import os
 from config import Config
 
 class AuthService:
@@ -53,7 +54,8 @@ class AuthService:
 
             except Exception as e:
                 print("Log (AuthService): [ERRO] Falha na tela de login.")
-                self.page.screenshot(path="debug_login_ping.png")
+                if os.getenv("DEBUG_SCREENSHOTS"):
+                    self.page.screenshot(path="debug_login_ping.png")
                 raise e
         else:
             print("Log (AuthService): Sessão ativa detectada. Login pulado.")

@@ -7,9 +7,18 @@ def iniciar_automacao():
 
     print("Log (Main): Iniciando motor de automação...")
 
-    # Validação básica de segurança
-    if not Config.USER or not Config.PASS:
-        print("Log (Main): ERRO - Usuário ou Senha não encontrados.")
+    # Validação de variáveis de ambiente obrigatórias
+    obrigatorias = {
+        "TIM_USER": Config.USER,
+        "ROBO_PASS": Config.PASS,
+        "URL_RADAR_START": Config.URL_RADAR_START,
+        "CHROME_PATH": Config.CHROME_PATH,
+        "USER_DATA_DIR": Config.CHROME_DATA_DIR,
+    }
+    ausentes = [nome for nome, valor in obrigatorias.items() if not valor]
+    if ausentes:
+        print(f"Log (Main): ERRO - Variáveis de ambiente não definidas: {', '.join(ausentes)}")
+        print("Log (Main): Configure as variáveis no Windows antes de executar.")
         return
 
     try:
