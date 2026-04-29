@@ -26,7 +26,7 @@ class DistribuidorRoundRobin:
 
             # Regra de negócio: Analista aceita esse pedido?
             elegivel = False
-            if filtro_analista == 'tudo':
+            if filtro_analista in ('tudo', 'lista'):
                 elegivel = True
             elif filtro_analista == 'meta' and pedido_is_meta:
                 elegivel = True

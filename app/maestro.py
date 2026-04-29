@@ -4,6 +4,7 @@ from services.radar_portal import RadarPortal
 from infra.file_handler import FileHandler
 from infra.audit_logger import AuditLogger
 from core.distribuidor import DistribuidorRoundRobin
+from core.fontes_pedidos import FontePortal, FonteListaFixa
 from config import Config
 
 
@@ -62,8 +63,8 @@ class Maestro:
                         cotas_validas[usr] = {'cota': cota, 'filtro': filtro}
                     else:
                         usuarios_ignorados.append(f"{usr} ({filtro})")
-                else: # Modo Alocação
-                    if filtro in ['meta', 'tudo'] and usr not in cotas_validas:
+                else: # Modo Alocação (meta, tudo ou lista)
+                    if filtro in ['meta', 'tudo', 'lista'] and usr not in cotas_validas:
                         cotas_validas[usr] = {'cota': cota, 'filtro': filtro}
                     else:
                         usuarios_ignorados.append(f"{usr} ({filtro})")
@@ -107,12 +108,18 @@ class Maestro:
             # ==========================================================
             # --- CAMINHO B: MODO ALOCAÇÃO PADRÃO ---
             # ==========================================================
+            is_modo_lista = (primeira_linha['filtro'] == 'lista')
+            modo_label = "LISTA FIXA" if is_modo_lista else "ALOCAÇÃO"
             print("\n========================================================")
-            print("Log (Maestro): --- MODO ALOCAÇÃO ATIVADO ---")
+            print(f"Log (Maestro): --- MODO {modo_label} ATIVADO ---")
             print("========================================================\n")
 
-            nome_arquivo_base = portal.baixar_base_documentacao()
-            backlog = self.arquivos.ler_e_ordenar_backlog(nome_arquivo_base, "Data de Entrada")
+            if is_modo_lista:
+                fonte = FonteListaFixa(self.arquivos)
+            else:
+                fonte = FontePortal(portal, self.arquivos)
+
+            backlog = fonte.obter_pedidos()
 
             if not backlog:
                 print("Log (Maestro): Backlog vazio ou com erro. Abortando.")
@@ -170,9 +177,17 @@ class Maestro:
                             f"Log (Maestro): [{alocacoes_realizadas + 1}/{total_cotas}] [AVISO] Erro tecnico com {proximo_analista}.")
                         tentativas += 1
 
+            # AVISO: pedidos da lista que sobraram sem ser alocados
+            if is_modo_lista:
+                pendentes = len(backlog) - alocacoes_realizadas
+                if pendentes > 0:
+                    aviso_lista = f"AVISO: {pendentes} pedido(s) da lista não foram alocados. Revise as cotas ou a disponibilidade dos analistas."
+                    print(f"\nLog (Maestro): {aviso_lista}")
+                    self.logger.registrar(aviso_lista)
+
             # AVISO DE EXCEÇÃO NO FINAL
             if usuarios_ignorados:
-                alerta = f"AVISO: A rodada iniciou no modo ALOCAÇÃO. Analistas com filtro 'limpar' ou duplicados foram ignorados: {', '.join(usuarios_ignorados)}"
+                alerta = f"AVISO: A rodada iniciou no modo {modo_label}. Analistas com filtro divergente ou duplicados foram ignorados: {', '.join(usuarios_ignorados)}"
                 print(f"\nLog (Maestro): {alerta}")
                 self.logger.registrar(alerta)
 

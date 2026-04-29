@@ -22,12 +22,13 @@ class FileHandler:
                 return None
 
             df['filtro'] = df['filtro'].astype(str).str.lower().str.strip()
+            df['cota'] = pd.to_numeric(df['cota'], errors='coerce').fillna(0).astype(int)
 
-            valores_invalidos = df[~df['filtro'].isin(['meta', 'tudo', 'limpar'])]
+            valores_invalidos = df[~df['filtro'].isin(['meta', 'tudo', 'limpar', 'lista'])]
             if not valores_invalidos.empty:
                 errados = valores_invalidos['filtro'].unique()
                 print(
-                    f"Log (FileHandler): [ERRO FATAL] Filtro inválido: {errados}. Use apenas 'meta', 'tudo' ou 'limpar'.")
+                    f"Log (FileHandler): [ERRO FATAL] Filtro inválido: {errados}. Use apenas 'meta', 'tudo', 'limpar' ou 'lista'.")
                 return None
 
             # --- LÓGICA: Retorna uma lista na ordem exata do Excel ---
@@ -77,4 +78,29 @@ class FileHandler:
 
         except Exception as e:
             print(f"Log (FileHandler): Erro crítico no processamento: {e}")
+            return None
+
+    def ler_lista_pedidos(self, caminho: str):
+        try:
+            df = pd.read_excel(caminho, sheet_name='ListaPedidos', engine='openpyxl')
+            df.columns = df.columns.str.lower().str.strip()
+
+            if 'pedido' not in df.columns:
+                print("Log (FileHandler): [ERRO FATAL] Aba 'Pedidos' não tem coluna 'Pedido'.")
+                return None
+
+            pedidos_validos = pd.to_numeric(df['pedido'], errors='coerce').dropna()
+
+            if pedidos_validos.empty:
+                print("Log (FileHandler): [ERRO FATAL] Aba 'Pedidos' não contém nenhum número válido.")
+                return None
+
+            print(f"Log (FileHandler): Lista de pedidos carregada! {len(pedidos_validos)} pedidos.")
+            return [{'Pedido': int(p), 'IsMeta': True} for p in pedidos_validos]
+
+        except ValueError:
+            print("Log (FileHandler): [ERRO FATAL] Aba 'ListaPedidos' não encontrada no Excel.")
+            return None
+        except Exception as e:
+            print(f"Log (FileHandler): Erro ao ler lista de pedidos: {e}")
             return None
